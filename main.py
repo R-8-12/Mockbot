@@ -1,22 +1,28 @@
 import streamlit as st
 import google.generativeai as genai
+from PIL import Image
+import os
 
 # Define character-specific configurations
 characters = {
     "MockBot": {
         "color": "#1e3a8a",
+        "avatar": "images/mockbot.jpg",  # Ensure the image is present in a folder named 'images'
         "greeting": "Hello, I am MockBot. Let's begin!",
     },
     "Professor Snape": {
         "color": "#4b0082",
+        "avatar": "images/snape.png",
         "greeting": "Ah, another student daring to test their knowledge...",
     },
     "Tony Stark": {
         "color": "#b22222",
+        "avatar": "images/iron-man.jpg",
         "greeting": "Hey there! Genius, billionaire, playboy, philanthropist here. Let's see what you've got!",
     },
     "Jitu Bhaiya": {
         "color": "#228b22",
+        "avatar": "images/jitubhaiya.jpg",
         "greeting": "Beta, let's check how much you've studied. Dhyan se!",
     },
 }
@@ -27,37 +33,47 @@ def generate_questions(domain, num_questions):
         # Create a prompt to generate questions
         prompt = (
             f"Generate {num_questions} multiple-choice quiz questions on the topic of {domain}. "
-            f"Each question should have 4 options and clearly indicate the correct answer."
+            "Each question should have 4 options and clearly indicate the correct answer."
         )
         
-        # Generate questions using Google Generative AI
-        genai.configure(api_key="AIzaSyAzaVSRHB6RHz7MTiSzl6F5_OKt1jNGRQI")
+        # Configure the Generative AI API
+        genai.configure(api_key="AIzaSyBUXmEqXWEL35t-_TGu5cRaCocL2hfhgUI")
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(prompt)
-        
-        # Extract the generated content
+
+        # Extract and parse the response into structured quiz data
         questions_text = response.candidates[0].content.parts[0].text
-        
-        # Parse the response into structured quiz data
-        questions = []
-        for question_block in questions_text.split("\n\n"):
-            lines = question_block.strip().split("\n")
-            if len(lines) < 2:
-                continue
-            question = lines[0]
-            options = [line.strip() for line in lines[1:-1] if line.strip()]
-            answer = lines[-1].split(":")[-1].strip()  # Assuming the last line is "Answer: X"
-            questions.append({
-                "question": question,
-                "options": options,
-                "answer": answer,
-            })
+        questions = parse_questions(questions_text)
 
         return questions
     except Exception as e:
-        st.error(f"Error generating questions: {e}")
-        return []
+        st.warning(f"Error generating questions: {e}. Falling back to default questions.")
+        # Fallback to static questions
+        return [
+            {"question": f"Static Question {i+1}", "options": ["A", "B", "C", "D"], "answer": "A"}
+            for i in range(num_questions)
+        ]
 
+# Function to parse questions from AI response
+def parse_questions(questions_text):
+    questions = []
+    for block in questions_text.split("\n\n"):
+        lines = block.strip().split("\n")
+        if len(lines) < 2:
+            continue
+        question = lines[0]
+        options = lines[1:-1]
+        answer_line = lines[-1]
+        if "Answer:" in answer_line:
+            answer = answer_line.split("Answer:")[-1].strip()
+        else:
+            answer = options[0]  # Default to first option if missing
+        questions.append({
+            "question": question,
+            "options": options,
+            "answer": answer,
+        })
+    return questions
 
 # Initialize session state
 if "bot_name" not in st.session_state:
@@ -70,6 +86,8 @@ if "bot_name" not in st.session_state:
 # UI Setup
 st.title("Personality Quiz Bot")
 character = st.session_state.character
+
+# Display Character Card
 st.markdown(
     f"<div style='background-color: {character['color']}; padding: 10px; border-radius: 5px;'>"
     f"<h2 style='color: white;'>{st.session_state.bot_name}</h2>"
@@ -77,6 +95,7 @@ st.markdown(
     f"</div>",
     unsafe_allow_html=True,
 )
+st.image(character["avatar"], width=200)
 
 # Quiz Setup
 if not st.session_state.quiz_started:
@@ -97,33 +116,28 @@ if not st.session_state.quiz_started:
             if not st.session_state.questions:
                 st.error("Failed to generate questions. Please try again.")
                 st.session_state.quiz_started = False
-            else:
-                print("need to be fixed")
 else:
     st.subheader("Quiz Time!")
     questions = st.session_state.questions
 
     # Progress through the questions
     for i, question_data in enumerate(questions):
-        question = question_data.get("question", "Question text unavailable.")
-        options = question_data.get("options", [])
-        correct_answer = question_data.get("answer", "")
+        with st.form(key=f"form_{i}"):
+            question = question_data.get("question", "Question text unavailable.")
+            options = question_data.get("options", [])
+            correct_answer = question_data.get("answer", "")
 
-        st.write(f"Q{i + 1}: {question}")
-        user_answer = st.radio(
-            f"Your Answer for Q{i + 1}",
-            options,
-            key=f"answer_{i}"
-        )
+            st.write(f"Q{i + 1}: {question}")
+            user_answer = st.radio("Choose your answer", options, key=f"answer_{i}")
+            submit = st.form_submit_button("Submit")
 
-        if st.button(f"Submit Answer for Q{i + 1}", key=f"submit_{i}"):
-            if user_answer == correct_answer:
-                st.session_state.score += 1
-                st.success("Correct!")
-            else:
-                st.error(f"Incorrect! The correct answer was: {correct_answer}")
-
-        st.progress((i + 1) / len(questions))
+            if submit:
+                if user_answer == correct_answer:
+                    st.session_state.score += 1
+                    st.success("Correct!")
+                else:
+                    st.error(f"Incorrect! The correct answer was: {correct_answer}")
+                break  # Prevent answering multiple questions simultaneously
 
     # Finish the quiz
     if st.button("Finish Quiz"):
@@ -139,5 +153,4 @@ else:
         st.session_state.quiz_started = False
         st.session_state.questions = []
         st.session_state.score = 0
-        print("Over")
         #st.experimental_rerun()
